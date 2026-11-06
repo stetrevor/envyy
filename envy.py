@@ -275,15 +275,17 @@ def generate_env_content(
 
     for var_name, var_spec in environment.items():
         if not isinstance(var_spec, dict):
-            resolved = resolve_token(var_spec, localvars, var_name)
-            lines.append(f"{var_name}={format_env_value(resolved)}")
+            continue
+
+        # If the stage key doesn't exist or is explicitly null (~, None, bare 'stage:') -> OMIT
+        if stage not in var_spec or var_spec[stage] is None:
             continue
 
         comment = var_spec.get("_comment")
         if comment:
             lines.append(f"# {comment}")
 
-        raw_val = var_spec.get(stage, var_spec.get("default", ""))
+        raw_val = var_spec[stage]
         resolved_val = resolve_token(raw_val, localvars, f"{var_name} [{stage}]")
         lines.append(f"{var_name}={format_env_value(resolved_val)}\n")
 
