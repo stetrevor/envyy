@@ -1,4 +1,5 @@
 import argparse
+import importlib.metadata
 import io
 import re
 import sys
@@ -7,6 +8,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 import yaml
+
+try:
+    __version__ = importlib.metadata.version("envyy")
+except importlib.metadata.PackageNotFoundError:
+    __version__ = "0.1.1.dev0"
 
 CONFIG_FILE = Path("env.yaml")
 SCHEMA_FILE = Path("env.schema.yaml")
@@ -590,6 +596,13 @@ def main():
         prog="envy",
         description="Centralized environment manager producing single .env and schema files.",
     )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show version and exit.",
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     # init
@@ -672,6 +685,11 @@ def main():
         help="Minimum number of occurrences to consider a duplicate (default: 2)",
     )
 
+    version_parser = subparsers.add_parser(
+        "version",
+        help="Display installed envyy version",
+    )
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -700,6 +718,9 @@ def main():
         cmd_import(args.file, args.stage)
     elif args.command == "dedupe":
         cmd_dedupe(args.apply, args.min_count, args.stage)
+    elif args.command == "version":
+        print(f"envyy {__version__}")
+        sys.exit(0)
     else:
         parser.print_help()
 
