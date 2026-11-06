@@ -364,23 +364,78 @@ def run_pipeline(stage: str) -> bool:
     return True
 
 
-def cmd_init(stage: str):
-    """Initializes env.yaml and compiles targets."""
-    if not CONFIG_FILE.exists():
-        if SCHEMA_FILE.exists():
+def cmd_init(
+    file_path: Path | None = None, stage: str | None = None, populate: str = "dev"
+):
+    """Initializes env.yaml from a starter template or an existing .env file."""
+    if CONFIG_FILE.exists():
+        print(f"\033[33mWarning:\033[0m {CONFIG_FILE.name} already exists.")
+        if file_path and stage:
             print(
-                f"Found existing {SCHEMA_FILE.name}. Initializing {CONFIG_FILE.name} from schema..."
+                f"To merge into an existing file, use: envy import {file_path} {stage}"
             )
-            CONFIG_FILE.write_text(
-                SCHEMA_FILE.read_text(encoding="utf-8"), encoding="utf-8"
-            )
-        else:
-            print(f"Creating starter {CONFIG_FILE.name}...")
-            CONFIG_FILE.write_text(STARTER_TEMPLATE, encoding="utf-8")
-    else:
-        print(f"{CONFIG_FILE.name} already exists.")
+        return
 
-    run_pipeline(stage)
+    # Seed directly from an existing .env file
+    if file_path and stage:
+        try:
+            entries = parse_env_file(file_path)
+        except FileNotFoundError:
+            print(
+                f"\033[31m✖ Error:\033[0m Source environment file '{file_path}' not found."
+            )
+            print(f"\033[36mUsage:\033[0m envy init [file stage] [--populate POPULATE]")
+            sys.exit(1)
+        except Exception as e:
+            print(f"\033[31m✖ Error reading '{file_path}':\033[0m {e}")
+            sys.exit(1)
+
+        print(
+            f"Initializing {CONFIG_FILE.name} from '{file_path}' for stage '{stage}'..."
+        )
+        data = {
+            "populate": populate,
+            "localvars": {},
+            "environment": {},
+        }
+
+        for key, val, comment in entries:
+            var_entry: dict[str, Any] = {}
+            if comment:
+                var_entry["_comment"] = comment
+            var_entry[stage] = val
+            data["environment"][key] = var_entry
+
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, Dumper=IndentDumper, sort_keys=False, allow_unicode=True)
+
+        print(
+            f"\033[32m✔ Initialized '{CONFIG_FILE.name}' [stage: {stage}, populate: {populate}] with {len(entries)} variables.\033[0m"
+        )
+        run_pipeline(stage)
+        return
+
+    # Bare init: Fall back to existing schema or the default template
+    if SCHEMA_FILE.exists():
+        print(
+            f"Found existing {SCHEMA_FILE.name}. Initializing {CONFIG_FILE.name} from schema..."
+        )
+        CONFIG_FILE.write_text(
+            SCHEMA_FILE.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    else:
+        print(f"Creating starter {CONFIG_FILE.name}...")
+        template = STARTER_TEMPLATE
+        if populate != "dev":
+            template = re.sub(
+                r"^populate:\s*\w+",
+                f"populate: {populate}",
+                template,
+                flags=re.MULTILINE,
+            )
+        CONFIG_FILE.write_text(template, encoding="utf-8")
+
+    run_pipeline("dev")
 
 
 def cmd_import(file_path: Path, stage: str):
@@ -545,13 +600,18 @@ def main():
     # init
     init_parser = subparsers.add_parser(
         "init",
-        help=f"Initialize {CONFIG_FILE.name} and compile initial targets",
+        help=f"Initialize {CONFIG_FILE.name} (bare template or from a file + stage)",
     )
     init_parser.add_argument(
-        "--stage",
-        "-s",
+        "seed",
+        nargs="*",
+        help="Optional: <file> <stage> to seed env.yaml from an existing file",
+    )
+    init_parser.add_argument(
+        "--populate",
+        "-p",
         default="dev",
-        help="Target deployment stage. Default: dev",
+        help="Stage values safe to commit in env.schema.yaml (default: dev)",
     )
 
     # generate
@@ -620,7 +680,22 @@ def main():
     args = parser.parse_args()
 
     if args.command == "init":
-        cmd_init(args.stage)
+        file_path = None
+        stage = None
+
+        if len(args.seed) == 1:
+            init_parser.error(
+                "When providing a file, you must also specify the stage: envy init <file> <stage>"
+            )
+        elif len(args.seed) == 2:
+            file_path = Path(args.seed[0])
+            stage = args.seed[1]
+        elif len(args.seed) > 2:
+            init_parser.error(
+                "Too many arguments. Usage: envy init [file stage] [--populate POPULATE]"
+            )
+
+        cmd_init(file_path=file_path, stage=stage, populate=args.populate)
     elif args.command == "generate":
         success = run_pipeline(args.stage)
         sys.exit(0 if success else 1)
