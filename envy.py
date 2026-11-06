@@ -12,11 +12,55 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 import yaml
 
 CONFIG_FILE = Path("env.yaml")
 SCHEMA_FILE = Path("env.schema.yaml")
 ENV_FILE = Path(".env")
+
+STARTER_TEMPLATE = """# Stages whose values can safely be committed to Git (e.g. dev)
+populate: dev
+
+# -------------------------------------------------------------------------
+# Local Variables (Internal Interpolation Only)
+# Shared constants referenced via ${TOKEN} inside the environment section.
+# These are never emitted into .env directly.
+# -------------------------------------------------------------------------
+localvars:
+  BASE_DOMAIN: "example.com"
+  DEFAULT_PORT: 8080
+
+# -------------------------------------------------------------------------
+# Environment Variables
+# Emitted into the active .env based on the requested --stage (default: dev).
+# -------------------------------------------------------------------------
+environment:
+  APP_ENV:
+    _comment: "Runtime execution mode"
+    dev: "development"
+    staging: "staging"
+    prod: "production"
+
+  PORT:
+    _comment: "HTTP server listener port"
+    dev: 3000
+    staging: "${DEFAULT_PORT}"
+    prod: "${DEFAULT_PORT}"
+
+  API_URL:
+    _comment: "Backend API endpoint"
+    dev: "http://localhost:8080"
+    staging: "https://staging-api.${BASE_DOMAIN}"
+    prod: "https://api.${BASE_DOMAIN}"
+
+  JWT_SECRET:
+    _comment: "Authentication signing secret. Scrubbed even in dev."
+    secret: true
+    dev: "local_dev_jwt_secret"
+    staging: "staging_vault_jwt_secret"
+    prod: "prod_vault_jwt_secret"
+"""
 
 TOKEN_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
 
@@ -59,19 +103,16 @@ def parse_env_file(path: Path) -> list[tuple[str, Any, str | None]]:
         for line in f:
             stripped = line.strip()
 
-            # Empty lines reset detached comments
             if not stripped:
                 pending_comments.clear()
                 continue
 
-            # Collect comment lines
             if stripped.startswith("#"):
                 comment_text = stripped.lstrip("#").strip()
                 if comment_text:
                     pending_comments.append(comment_text)
                 continue
 
-            # Strip optional leading 'export '
             if stripped.startswith("export "):
                 stripped = stripped[7:].strip()
 
@@ -85,7 +126,6 @@ def parse_env_file(path: Path) -> list[tuple[str, Any, str | None]]:
             if not key:
                 continue
 
-            # Strip surrounding quotes
             if (raw_val.startswith('"') and raw_val.endswith('"')) or (
                 raw_val.startswith("'") and raw_val.endswith("'")
             ):
@@ -105,6 +145,42 @@ def parse_env_file(path: Path) -> list[tuple[str, Any, str | None]]:
             entries.append((key, val, comment))
 
     return entries
+
+
+def sanitize_token_slug(text: str) -> str:
+    """Converts any string to an uppercase slug containing only letters, numbers, and underscores."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", text)
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug.upper()
+
+
+def suggest_token_name(value: Any, occurrences: list[tuple[str, str]]) -> str:
+    """Generates an uppercase identifier based on value semantics."""
+    val_str = str(value).strip()
+    var_names = [var for var, _ in occurrences]
+
+    if isinstance(value, int) or val_str.isdigit():
+        for name in var_names:
+            if "PORT" in name.upper():
+                return "DEFAULT_PORT"
+        return sanitize_token_slug(f"SHARED_VAL_{val_str}")
+
+    if re.match(r"^https?://", val_str, re.IGNORECASE):
+        parsed = urlparse(val_str)
+        host_stem = parsed.hostname or parsed.netloc.split(":")[0]
+        return sanitize_token_slug(f"ORIGIN_{host_stem}")
+
+    domain_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}(:[0-9]+)?$"
+    if re.match(domain_pattern, val_str):
+        host_stem = val_str.split(":")[0]
+        return sanitize_token_slug(f"HOST_{host_stem}")
+
+    if val_str in ("localhost", "127.0.0.1"):
+        return "HOST_LOCALHOST"
+
+    clean_names = [re.sub(r"^(DEV_|PROD_|STAGING_)", "", n) for n in var_names]
+    common_stem = clean_names[0]
+    return sanitize_token_slug(f"SHARED_{common_stem}")
 
 
 def resolve_token(value: Any, localvars: dict[str, Any], context_label: str) -> Any:
@@ -241,7 +317,6 @@ def run_pipeline(stage: str) -> bool:
     localvars = data.get("localvars", {})
     environment = data.get("environment", {})
 
-    # 1. Compile .env
     try:
         env_content = generate_env_content(environment, localvars, stage)
         env_updated = atomic_write_if_changed(ENV_FILE, env_content)
@@ -252,7 +327,6 @@ def run_pipeline(stage: str) -> bool:
         print(f"\033[31m✖ Error generating {ENV_FILE.name}:\033[0m {e}")
         return False
 
-    # 2. Compile env.schema.yaml
     try:
         schema_data = build_schema_data(data)
         buffer = io.StringIO()
@@ -273,7 +347,6 @@ def run_pipeline(stage: str) -> bool:
         print(f"\033[31m✖ Error generating {SCHEMA_FILE.name}:\033[0m {e}")
         return False
 
-    # Status reporting
     actions = []
     if env_updated:
         actions.append(
@@ -289,6 +362,25 @@ def run_pipeline(stage: str) -> bool:
 
     print(" | ".join(actions))
     return True
+
+
+def cmd_init(stage: str):
+    """Initializes env.yaml and compiles targets."""
+    if not CONFIG_FILE.exists():
+        if SCHEMA_FILE.exists():
+            print(
+                f"Found existing {SCHEMA_FILE.name}. Initializing {CONFIG_FILE.name} from schema..."
+            )
+            CONFIG_FILE.write_text(
+                SCHEMA_FILE.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+        else:
+            print(f"Creating starter {CONFIG_FILE.name}...")
+            CONFIG_FILE.write_text(STARTER_TEMPLATE, encoding="utf-8")
+    else:
+        print(f"{CONFIG_FILE.name} already exists.")
+
+    run_pipeline(stage)
 
 
 def cmd_import(file_path: Path, stage: str):
@@ -313,7 +405,6 @@ def cmd_import(file_path: Path, stage: str):
 
     for key, val, comment in entries:
         if key not in env_dict or not isinstance(env_dict[key], dict):
-            # New entry
             var_entry: dict[str, Any] = {}
             if comment:
                 var_entry["_comment"] = comment
@@ -321,22 +412,102 @@ def cmd_import(file_path: Path, stage: str):
             env_dict[key] = var_entry
             added += 1
         else:
-            # Existing entry: merge the stage value without destroying other stages/comments
             target_entry = env_dict[key]
             if comment and "_comment" not in target_entry:
                 target_entry["_comment"] = comment
             target_entry[stage] = val
             updated += 1
 
-    # Write updated env.yaml
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         yaml.dump(data, f, Dumper=IndentDumper, sort_keys=False, allow_unicode=True)
 
     print(
         f"\033[32m✔ Imported into '{CONFIG_FILE.name}' [stage: {stage}]:\033[0m {added} added, {updated} updated."
     )
+    run_pipeline(stage)
 
-    # Re-generate schema and sync target
+
+def cmd_dedupe(apply: bool, min_count: int, stage: str):
+    """Scans environment section for duplicate values and suggests localvars."""
+    data = load_or_init_catalog(CONFIG_FILE)
+    environment = data.get("environment", {})
+    localvars = data.setdefault("localvars", {})
+
+    value_map: dict[Any, list[tuple[str, str]]] = {}
+
+    for var_name, var_spec in environment.items():
+        if not isinstance(var_spec, dict):
+            continue
+        for s_key, s_val in var_spec.items():
+            if s_key.startswith("_") or s_key == "secret":
+                continue
+            if s_val in ("", None) or isinstance(s_val, bool):
+                continue
+            if isinstance(s_val, str) and TOKEN_PATTERN.search(s_val):
+                continue
+
+            value_map.setdefault(s_val, []).append((var_name, s_key))
+
+    duplicates = {
+        val: occs for val, occs in value_map.items() if len(occs) >= min_count
+    }
+
+    if not duplicates:
+        print(
+            f"\033[32m✔ No duplicate values found\033[0m (threshold: >= {min_count} occurrences)."
+        )
+        return
+
+    print(f"\033[33mFound {len(duplicates)} candidate value(s) for localvars:\033[0m\n")
+
+    suggested_localvars: dict[str, Any] = {}
+    replacements: list[tuple[str, str, str, Any]] = []
+
+    for val, occs in duplicates.items():
+        base_token = suggest_token_name(val, occs)
+
+        stages = {s_key for _, s_key in occs}
+        if len(stages) == 1:
+            stage_suffix = next(iter(stages)).upper()
+            if not base_token.endswith(f"_{stage_suffix}"):
+                base_token = f"{base_token}_{stage_suffix}"
+
+        token = base_token
+        counter = 1
+
+        all_claimed_tokens = {**localvars, **suggested_localvars}
+        while token in all_claimed_tokens and all_claimed_tokens[token] != val:
+            token = f"{base_token}_{counter}"
+            counter += 1
+
+        suggested_localvars[token] = val
+        print(
+            f"• \033[36m${{{token}}}\033[0m = \033[32m{repr(val)}\033[0m ({len(occs)} occurrences)"
+        )
+        for var_name, s_key in occs:
+            print(f"    - {var_name} [{s_key}]")
+            replacements.append((var_name, s_key, token, val))
+        print()
+
+    if not apply:
+        print("Suggested \033[1mlocalvars:\033[0m additions:")
+        for t, v in suggested_localvars.items():
+            print(f"  {t}: {repr(v)}")
+        print("\nRun with \033[36m--apply\033[0m to rewrite env.yaml automatically.")
+        return
+
+    for token, val in suggested_localvars.items():
+        localvars[token] = val
+
+    for var_name, s_key, token, _ in replacements:
+        environment[var_name][s_key] = f"${{{token}}}"
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, Dumper=IndentDumper, sort_keys=False, allow_unicode=True)
+
+    print(
+        f"\033[32m✔ Applied {len(suggested_localvars)} localvars to {CONFIG_FILE.name}!\033[0m"
+    )
     run_pipeline(stage)
 
 
@@ -359,43 +530,99 @@ def cmd_watch(stage: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="env-sync",
+        prog="envy",
         description="Centralized environment manager producing single .env and schema files.",
     )
-    parser.add_argument(
+    subparsers = parser.add_subparsers(dest="command")
+
+    # init
+    init_parser = subparsers.add_parser(
+        "init",
+        help=f"Initialize {CONFIG_FILE.name} and compile initial targets",
+    )
+    init_parser.add_argument(
         "--stage",
         "-s",
         default="dev",
-        help="Target deployment stage (e.g. dev, staging, prod). Default: dev",
+        help="Target deployment stage. Default: dev",
     )
-
-    subparsers = parser.add_subparsers(dest="command")
 
     # generate
-    subparsers.add_parser("generate", help="Compile .env and schema once and exit")
+    generate_parser = subparsers.add_parser(
+        "generate",
+        help="Compile .env and schema once and exit",
+    )
+    generate_parser.add_argument(
+        "--stage",
+        "-s",
+        default="dev",
+        help="Target deployment stage. Default: dev",
+    )
 
     # watch
-    subparsers.add_parser(
-        "watch", help=f"Watch {CONFIG_FILE.name} and recompile on save"
+    watch_parser = subparsers.add_parser(
+        "watch",
+        help=f"Watch {CONFIG_FILE.name} and recompile on save",
+    )
+    watch_parser.add_argument(
+        "--stage",
+        "-s",
+        default="dev",
+        help="Target deployment stage to watch and compile. Default: dev",
     )
 
-    # import
+    # import: two positional arguments (file and stage)
     import_parser = subparsers.add_parser(
-        "import", help="Import an existing .env file into a stage"
+        "import",
+        help="Import an existing .env file into a stage",
     )
     import_parser.add_argument(
-        "file", type=Path, help="Path to the .env file to import"
+        "file",
+        type=Path,
+        help="Path to the .env file to import",
+    )
+    import_parser.add_argument(
+        "stage",
+        type=str,
+        help="Target stage to import into (e.g. dev, staging, prod)",
+    )
+
+    # dedupe
+    dedupe_parser = subparsers.add_parser(
+        "dedupe",
+        help="Find duplicate values in environment and suggest localvars",
+    )
+    dedupe_parser.add_argument(
+        "--stage",
+        "-s",
+        default="dev",
+        help="Target stage to compile after refactoring. Default: dev",
+    )
+    dedupe_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Automatically write suggested tokens to env.yaml and replace duplicates",
+    )
+    dedupe_parser.add_argument(
+        "--min-count",
+        type=int,
+        default=2,
+        help="Minimum number of occurrences to consider a duplicate (default: 2)",
     )
 
     args = parser.parse_args()
 
-    if args.command == "import":
-        cmd_import(args.file, args.stage)
+    if args.command == "init":
+        cmd_init(args.stage)
     elif args.command == "generate":
         success = run_pipeline(args.stage)
         sys.exit(0 if success else 1)
     elif args.command == "watch":
         cmd_watch(args.stage)
+    elif args.command == "import":
+        cmd_import(args.file, args.stage)
+    elif args.command == "dedupe":
+        cmd_dedupe(args.apply, args.min_count, args.stage)
     else:
         parser.print_help()
 
