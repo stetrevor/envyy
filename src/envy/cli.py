@@ -1,11 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#     "pyyaml>=6.0.2",
-#     "watchfiles>=0.21.0",
-# ]
-# ///
-
 import argparse
 import io
 import re
@@ -13,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
 import yaml
 
 CONFIG_FILE = Path("env.yaml")
