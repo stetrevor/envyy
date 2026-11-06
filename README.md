@@ -3,6 +3,7 @@
 Fast, schema-driven environment configuration compiler and orchestrator.
 
 `envyy` manages multi-stage application configurations through a clean three-tier architecture:
+
 * **`env.yaml`**: Local, private configuration catalog containing secrets, stage matrices, and shared constants (ignored by Git).
 * **`env.schema.yaml`**: Public, scrubbed team contract that documents keys, comments, and structure without leaking secrets (committed to Git).
 * **`.env`**: Active, single-file runtime payload compiled for a specific deployment stage.
@@ -11,17 +12,34 @@ Fast, schema-driven environment configuration compiler and orchestrator.
 
 ## Installation & Quick Run
 
-Run instantly without global installation using `uvx`:
+The package provides two executable command aliases:
+* **`envyy`**: Matches the PyPI package name, enabling instant, configuration-free execution via `uvx`.
+* **`envy`**: A shorter alias for fast day-to-day terminal usage when installed.
+
+### Run via `uvx` (No Installation Required)
+
+Run directly from PyPI without installing:
 
 ```bash
 uvx envyy --help
 ```
 
-Or install globally into your environment via `uv`:
+*(You can also run the shorter alias with `uvx --from envyy envy --help`)*
+
+### Install Globally via `uv tool`
+
+Install the package globally to make both `envy` and `envyy` commands available across your system:
 
 ```bash
 uv tool install envyy
+```
+
+Once installed, either command works interchangeably:
+
+```bash
 envy --help
+# or
+envyy --help
 ```
 
 ---
@@ -29,6 +47,7 @@ envy --help
 ## Core Concepts
 
 ### 1. Root Configuration (`env.yaml`)
+
 Your local source of truth. It contains three top-level sections:
 
 ```yaml
@@ -62,12 +81,15 @@ environment:
 ```
 
 ### 2. Omission Rules During Compilation
+
 * **Omitted:** If a variable has no entry for a given stage, or is set to explicit null (`~`, `null`, or bare `stage:`), it is omitted from `.env` entirely. No orphaned comments are written.
 * **Preserved:** Explicit empty strings (`""`), `0`, and `false` are recognized as deliberate operational overrides and emitted as `KEY=`, `KEY=0`, or `KEY=false`.
 
 ---
 
 ## CLI Usage
+
+> **Note:** All examples below use `envy`, but `envyy` can be substituted interchangeably.
 
 ### `init` — Scaffold or Seed Configuration
 
@@ -84,8 +106,6 @@ envy init .env.dev dev
 envy init .env.prod prod --populate dev
 ```
 
----
-
 ### `gen` — Compile .env and Sync Schema
 
 Compiles `.env` according to the values specified for the stage and updates `env.schema.yaml`. Redundant disk writes are bypassed if file contents have not changed.
@@ -101,8 +121,6 @@ envy gen staging
 envy gen prod
 ```
 
----
-
 ### `import` — Ingest External `.env` Files
 
 Merge keys from any `.env` file into a target stage inside `env.yaml` without destroying existing comments or other stages:
@@ -115,11 +133,10 @@ envy import .env.local dev
 envy import /path/to/production.env prod
 ```
 
----
-
 ### `dedupe` — Identify Duplicates & Suggest `localvars`
 
 Scans stage values across `env.yaml` to detect duplicates, suggesting sanitized, underscore-slugged `${TOKEN}` identifiers:
+
 * Distinguishes full URLs with protocols as `ORIGIN_*`.
 * Distinguishes bare hostnames/domains as `HOST_*`.
 * Automatically disambiguates stage-specific keys (e.g., `SHARED_API_KEYS_DEV` vs. `SHARED_API_KEYS_PROD`).
@@ -134,8 +151,6 @@ envy dedupe --min-count 3
 # Automatically apply suggested localvars and refactor env.yaml
 envy dedupe --apply
 ```
-
----
 
 ### `watch` — Live Development Sync
 
