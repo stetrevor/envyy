@@ -614,18 +614,18 @@ def main():
         help="Stage values safe to commit in env.schema.yaml (default: dev)",
     )
 
-    # generate
-    generate_parser = subparsers.add_parser(
-        "generate",
-        help="Compile .env and schema once and exit",
+    # gen (aliased as generate)
+    gen_parser = subparsers.add_parser(
+        "gen",
+        aliases=["generate"],
+        help="Generate .env according to values specified by stage and sync schema",
+        description="Generate .env according to values specified by stage.",
     )
-    generate_parser.add_argument(
-        "--stage",
-        "-s",
-        default="dev",
-        help="Target deployment stage. Default: dev",
+    gen_parser.add_argument(
+        "stage",
+        type=str,
+        help="Target stage to extract values from (e.g. dev, staging, prod)",
     )
-
     # watch
     watch_parser = subparsers.add_parser(
         "watch",
@@ -696,7 +696,7 @@ def main():
             )
 
         cmd_init(file_path=file_path, stage=stage, populate=args.populate)
-    elif args.command == "generate":
+    elif args.command in ("gen", "generate"):
         success = run_pipeline(args.stage)
         sys.exit(0 if success else 1)
     elif args.command == "watch":
