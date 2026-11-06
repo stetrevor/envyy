@@ -387,6 +387,13 @@ def cmd_import(file_path: Path, stage: str):
     """Imports variables from a .env file into env.yaml under the designated stage."""
     try:
         entries = parse_env_file(file_path)
+    except FileNotFoundError:
+        print(
+            f"\033[31m✖ Error:\033[0m Source environment file '{file_path}' not found."
+        )
+        print(f"\033[36mUsage:\033[0m envy import <file> <stage>")
+        print(f"       Example: envy import .env.dev {file_path}")
+        sys.exit(1)
     except Exception as e:
         print(f"\033[31m✖ Error reading '{file_path}':\033[0m {e}")
         sys.exit(1)
