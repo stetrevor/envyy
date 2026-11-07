@@ -18,47 +18,34 @@ CONFIG_FILE = Path("env.yaml")
 SCHEMA_FILE = Path("env.schema.yaml")
 ENV_FILE = Path(".env")
 
-STARTER_TEMPLATE = """# Stages whose values can safely be committed to Git (e.g. dev)
+STARTER_TEMPLATE = """# ==============================================================================
+# envyy Configuration (env.yaml)
+# Private environment definition. DO NOT commit this file to public repositories.
+# ==============================================================================
+
 populate: dev
 
-# -------------------------------------------------------------------------
-# Local Variables (Internal Interpolation Only)
-# Shared constants referenced via ${TOKEN} inside the environment section.
-# These are never emitted into .env directly.
-# -------------------------------------------------------------------------
 localvars:
-  BASE_DOMAIN: "example.com"
-  DEFAULT_PORT: 8080
+  # DEFAULT_PORT: 5432
+  # APP_NAME: "my_service"
 
-# -------------------------------------------------------------------------
-# Environment Variables
-# Emitted into the active .env based on the requested --stage (default: dev).
-# -------------------------------------------------------------------------
 environment:
-  APP_ENV:
-    _comment: "Runtime execution mode"
-    dev: "development"
-    staging: "staging"
-    prod: "production"
-
-  PORT:
-    _comment: "HTTP server listener port"
-    dev: 3000
-    staging: "${DEFAULT_PORT}"
-    prod: "${DEFAULT_PORT}"
-
-  API_URL:
-    _comment: "Backend API endpoint"
-    dev: "http://localhost:8080"
-    staging: "https://staging-api.${BASE_DOMAIN}"
-    prod: "https://api.${BASE_DOMAIN}"
-
-  JWT_SECRET:
-    _comment: "Authentication signing secret. Scrubbed even in dev."
-    secret: true
-    dev: "local_dev_jwt_secret"
-    staging: "staging_vault_jwt_secret"
-    prod: "prod_vault_jwt_secret"
+  # APP_ENV:
+  #   _comment: "Application environment runtime mode"
+  #   dev: "development"
+  #   staging: "staging"
+  #   prod: "production"
+  #
+  # DATABASE_URL:
+  #   _comment: "Primary database connection string"
+  #   secret: true
+  #   dev: "postgresql://localhost:${DEFAULT_PORT}/${APP_NAME}_dev"
+  #   prod: "postgresql://db.internal.vpc:${DEFAULT_PORT}/${APP_NAME}_prod"
+  #
+  # OPTIONAL_FEATURE_FLAG:
+  #   _comment: "Set to null or omit to exclude key entirely from compiled .env"
+  #   dev: "enabled"
+  #   prod: null
 """
 
 TOKEN_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
@@ -436,7 +423,7 @@ def cmd_init(
             )
         CONFIG_FILE.write_text(template, encoding="utf-8")
 
-    run_pipeline("dev")
+    run_pipeline(populate)
 
 
 def cmd_import(file_path: Path, stage: str):
