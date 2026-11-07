@@ -38,7 +38,8 @@ environment:
   #
   # DATABASE_URL:
   #   _comment: "Primary database connection string"
-  #   secret: true
+  #   # Masks values in env.schema.yaml with empty strings to prevent leaks
+  #   _secret: true
   #   dev: "postgresql://localhost:${DEFAULT_PORT}/${APP_NAME}_dev"
   #   prod: "postgresql://db.internal.vpc:${DEFAULT_PORT}/${APP_NAME}_prod"
   #
@@ -230,7 +231,7 @@ def build_schema_data(data: dict[str, Any]) -> dict[str, Any]:
             continue
 
         var_schema: dict[str, Any] = {}
-        is_secret = var_spec.get("secret", False) is True
+        is_secret = var_spec.get("_secret", False) is True
 
         for field_key, field_val in var_spec.items():
             if field_key.startswith("_") or field_key == "secret":
