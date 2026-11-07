@@ -234,13 +234,15 @@ def build_schema_data(data: dict[str, Any]) -> dict[str, Any]:
         is_secret = var_spec.get("_secret", False) is True
 
         for field_key, field_val in var_spec.items():
-            if field_key.startswith("_") or field_key == "secret":
+            if field_key.startswith("_"):
                 var_schema[field_key] = field_val
             elif is_secret:
                 var_schema[field_key] = ""
-            elif isinstance(field_val, str) and TOKEN_PATTERN.search(field_val):
-                var_schema[field_key] = field_val
-            elif field_key in allowed_stages:
+            elif (
+                isinstance(field_val, str)
+                and TOKEN_PATTERN.search(field_val)
+                or field_key in allowed_stages
+            ):
                 var_schema[field_key] = field_val
             else:
                 var_schema[field_key] = ""
@@ -490,7 +492,7 @@ def cmd_dedupe(apply: bool, min_count: int, stage: str):
         if not isinstance(var_spec, dict):
             continue
         for s_key, s_val in var_spec.items():
-            if s_key.startswith("_") or s_key == "secret":
+            if s_key.startswith("_"):
                 continue
             if s_val in ("", None) or isinstance(s_val, bool):
                 continue
