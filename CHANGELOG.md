@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-07
+
+### Changed
+- **Breaking**: Changed `watch` subcommand to require `stage` as a positional argument (e.g., `envy watch dev`), removing the `--stage` flag and the implicit `dev` fallback to prevent accidental overwrites across environments.
+
 ## [0.3.2] - 2026-11-07
+
+### Added
+- Project `CHANGELOG.md` documenting version history, breaking changes, and release milestones following the Keep a Changelog standard.
+- Changelog repository reference in `pyproject.toml` metadata.
 
 ### Added
 - Project `CHANGELOG.md` documenting version history, breaking changes, and release milestones following the Keep a Changelog standard.
