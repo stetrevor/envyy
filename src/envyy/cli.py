@@ -645,10 +645,9 @@ def main():
         help=f"Watch {CONFIG_FILE.name} and recompile on save",
     )
     watch_parser.add_argument(
-        "--stage",
-        "-s",
-        default="dev",
-        help="Target deployment stage to watch and compile. Default: dev",
+        "stage",
+        type=str,
+        help="Target stage to watch and compile (e.g. dev, staging, prod)",
     )
 
     # import: two positional arguments (file and stage)
