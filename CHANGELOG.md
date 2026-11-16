@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-16
+
+### Added
+- `-s` / `--stub` flag to `gen` to output stage-suffixed files (e.g., `.env.prod`) for inspection without overwriting the active `.env` file.
+- Initial `pytest` test suite covering CLI compilation and stub output behavior.
+
 ## [0.4.0] - 2026-11-07
 
 ### Changed

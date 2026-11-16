@@ -75,7 +75,7 @@ environment:
 
   DATABASE_URL:
     _comment: "Database connection string. Scrubbed from schema."
-    secret: true
+    _secret: true
     dev: "postgresql://postgres:postgres@localhost:5432/app_dev"
     prod: "postgresql://admin:secret@db.prod.internal:5432/app_prod"
 ```
@@ -119,6 +119,9 @@ envy gen staging
 
 # Compile for production
 envy gen prod
+
+# Generate a stage-suffixed stub (.env.prod) without overwriting .env
+envy gen prod -s
 ```
 
 ### `import` — Ingest External `.env` Files
@@ -158,7 +161,7 @@ Monitors `env.yaml` for edits and recompiles `.env` and `env.schema.yaml` on sav
 
 ```bash
 # Watch and keep .env compiled for dev
-envy watch --stage dev
+envy watch dev
 ```
 
 ---
@@ -168,9 +171,10 @@ envy watch --stage dev
 Ensure private catalogs and generated environments stay out of version control while committing the schema contract:
 
 ```gitignore
-# Envy local configurations
+# Envy local configurations and generated files
 env.yaml
 .env
+.env.*
 *.tmp
 
 # DO NOT ignore the team schema contract
