@@ -5,18 +5,24 @@ CONFIG_FILE = Path("env.yaml")
 SCHEMA_FILE = Path("env.schema.yaml")
 ENV_FILE = Path(".env")
 
-TOKEN_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
+CONST_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
+ANY_TOKEN_PATTERN = re.compile(r"\$\{([^}]+)\}")
+TOKEN_PATTERN = re.compile(r"\$\{([A-Z][A-Z0-9_]*)\}")
 
 STARTER_TEMPLATE = """# ==============================================================================
 # envyy Configuration (env.yaml)
 # Private environment definition. DO NOT commit this file to public repositories.
 # ==============================================================================
 
-populate: dev
-
-localvars:
-  # DEFAULT_PORT: 5432
-  # APP_NAME: "my_service"
+_meta:
+  stages:
+    - dev
+    - staging
+    - prod
+  populate: dev
+  consts:
+    # DEFAULT_PORT: 5432
+    # APP_NAME: "my_service"
 
 environment:
   # APP_ENV:

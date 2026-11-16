@@ -95,7 +95,7 @@ def main():
     # dedupe
     dedupe_parser = subparsers.add_parser(
         "dedupe",
-        help="Find duplicate values in environment and suggest localvars",
+        help="Find duplicate values in environment and suggest _meta.consts",
     )
     dedupe_parser.add_argument(
         "--stage",

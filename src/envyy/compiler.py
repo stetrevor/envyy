@@ -5,7 +5,9 @@ from typing import Any
 import yaml
 
 from .constants import (
+    ANY_TOKEN_PATTERN,
     CONFIG_FILE,
+    CONST_NAME_PATTERN,
     ENV_FILE,
     SCHEMA_FILE,
     SCHEMA_HEADER,
@@ -19,44 +21,58 @@ from .io_utils import (
 )
 
 
-def resolve_token(value: Any, localvars: dict[str, Any], context_label: str) -> Any:
-    """Substitutes ${KEY} placeholders using flat localvars definitions."""
+def resolve_token(value: Any, consts: dict[str, Any], context_label: str) -> Any:
+    """Substitutes ${ABC_DEF} placeholders using _meta.consts definitions."""
     if not isinstance(value, str):
         return value
 
-    exact_match = re.fullmatch(r"\$\{([A-Za-z0-9_]+)\}", value.strip())
+    for match in ANY_TOKEN_PATTERN.finditer(value):
+        raw_token = match.group(1)
+        if not CONST_NAME_PATTERN.match(raw_token):
+            raise ValueError(
+                f"Invalid constant reference '${{{raw_token}}}' in {context_label}. "
+                "Constant names must use UPPER_SNAKE_CASE (e.g., ABC_DEF)."
+            )
+
+    exact_match = re.fullmatch(r"\$\{([A-Z][A-Z0-9_]*)\}", value.strip())
     if exact_match:
         token = exact_match.group(1)
-        if token not in localvars:
+        if token not in consts:
             raise KeyError(
-                f"Undefined localvar '${{{token}}}' referenced in {context_label}"
+                f"Undefined constant '${{{token}}}' referenced in {context_label}"
             )
-        return localvars[token]
+        return consts[token]
 
     def _replace(match: re.Match) -> str:
         token = match.group(1)
-        if token not in localvars:
+        if token not in consts:
             raise KeyError(
-                f"Undefined localvar '${{{token}}}' referenced in {context_label}"
+                f"Undefined constant '${{{token}}}' referenced in {context_label}"
             )
-        return str(localvars[token])
+        return str(consts[token])
 
     return TOKEN_PATTERN.sub(_replace, value)
 
 
 def build_schema_data(data: dict[str, Any]) -> dict[str, Any]:
     """Builds the sanitized structural schema for Git tracking."""
-    populate_rules = data.get("populate", "dev")
+    meta = data.get("_meta", {})
+    stages = meta.get("stages", [])
+    populate_rules = meta.get("populate", "dev")
     allowed_stages = (
         {populate_rules}
         if isinstance(populate_rules, str)
         else set(populate_rules or [])
     )
 
-    schema: dict[str, Any] = {"populate": populate_rules}
-
-    localvars = data.get("localvars", {})
-    schema["localvars"] = {k: "" for k in localvars.keys()}
+    consts = meta.get("consts", {})
+    schema: dict[str, Any] = {
+        "_meta": {
+            "stages": stages,
+            "populate": populate_rules,
+            "consts": {k: "" for k in consts.keys()},
+        }
+    }
 
     environment = data.get("environment", {})
     schema_env: dict[str, Any] = {}
@@ -90,7 +106,7 @@ def build_schema_data(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def generate_env_content(
-    environment: dict[str, Any], localvars: dict[str, Any], stage: str
+    environment: dict[str, Any], consts: dict[str, Any], stage: str
 ) -> str:
     """Generates the full in-memory .env content for the requested stage."""
     lines = [
@@ -110,7 +126,7 @@ def generate_env_content(
             lines.append(f"# {comment}")
 
         raw_val = var_spec[stage]
-        resolved_val = resolve_token(raw_val, localvars, f"{var_name} [{stage}]")
+        resolved_val = resolve_token(raw_val, consts, f"{var_name} [{stage}]")
         lines.append(f"{var_name}={format_env_value(resolved_val)}\n")
 
     return "\n".join(lines).strip() + "\n"
@@ -126,13 +142,13 @@ def run_pipeline(stage: str, stub: bool = False) -> bool:
         print(f"\033[31m✖ Error loading {CONFIG_FILE}:\033[0m {e}")
         return False
 
-    localvars = data.get("localvars", {})
+    consts = data["_meta"].get("consts", {})
     environment = data.get("environment", {})
 
     try:
-        env_content = generate_env_content(environment, localvars, stage)
+        env_content = generate_env_content(environment, consts, stage)
         env_updated = atomic_write_if_changed(target_env_file, env_content)
-    except KeyError as e:
+    except (KeyError, ValueError) as e:
         print(f"\033[31m✖ Interpolation Error:\033[0m {e}")
         return False
     except Exception as e:

@@ -9,9 +9,13 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Runs each test inside a clean temporary directory with a sample env.yaml."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "env.yaml").write_text(
-        """populate: dev
-localvars:
-  PORT: 5432
+        """_meta:
+  stages:
+    - dev
+    - prod
+  populate: dev
+  consts:
+    PORT: 5432
 environment:
   APP_ENV:
     dev: development

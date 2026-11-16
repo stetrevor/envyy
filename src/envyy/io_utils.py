@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import Any
 import yaml
 
+from .constants import CONST_NAME_PATTERN
+
 
 class IndentDumper(yaml.SafeDumper):
     """YAML dumper enforcing 2-space indentation on nested blocks."""
@@ -11,21 +13,58 @@ class IndentDumper(yaml.SafeDumper):
 
 
 def load_or_init_catalog(path: Path) -> dict[str, Any]:
-    """Loads existing env.yaml or initializes a baseline structure."""
+    """Loads existing env.yaml or initializes a baseline _meta structure."""
     if not path.is_file():
         return {
-            "populate": "dev",
-            "localvars": {},
+            "_meta": {
+                "stages": [],
+                "populate": "dev",
+                "consts": {},
+            },
             "environment": {},
         }
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
         raise ValueError(f"'{path}' must define a top-level YAML mapping.")
+
+    if "localvars" in data or "populate" in data:
+        raise ValueError(
+            f"'{path}' uses legacy top-level 'populate'/'localvars'. Move them under '_meta:' using 'consts:'."
+        )
+
+    meta = data.get("_meta")
+    if meta is None:
+        meta = {}
+        data["_meta"] = meta
+    elif not isinstance(meta, dict):
+        raise ValueError(f"'{path}': '_meta' must be a YAML mapping.")
+
+    if "stages" not in meta or meta["stages"] is None:
+        meta["stages"] = []
+    elif not isinstance(meta["stages"], list):
+        raise ValueError(f"'{path}': '_meta.stages' must be a list of stage names.")
+
+    if "populate" not in meta:
+        meta["populate"] = "dev"
+
+    if "consts" not in meta or meta["consts"] is None:
+        meta["consts"] = {}
+    elif not isinstance(meta["consts"], dict):
+        raise ValueError(f"'{path}': '_meta.consts' must be a YAML mapping.")
+
+    invalid_consts = [
+        k for k in meta["consts"].keys() if not CONST_NAME_PATTERN.match(str(k))
+    ]
+    if invalid_consts:
+        raise ValueError(
+            f"Invalid constant name(s) in '_meta.consts': {invalid_consts}. "
+            "Names must match UPPER_SNAKE_CASE (e.g., ABC_DEF)."
+        )
+
     if "environment" not in data or not isinstance(data["environment"], dict):
         data["environment"] = {}
-    if "localvars" not in data or not isinstance(data["localvars"], dict):
-        data["localvars"] = {}
+
     return data
 
 

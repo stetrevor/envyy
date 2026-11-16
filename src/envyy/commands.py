@@ -38,9 +38,13 @@ def cmd_init(
         print(
             f"Initializing {CONFIG_FILE.name} from '{file_path}' for stage '{stage}'..."
         )
+
         data = {
-            "populate": populate,
-            "localvars": {},
+            "_meta": {
+                "stages": list(dict.fromkeys([stage, populate])),
+                "populate": populate,
+                "consts": {},
+            },
             "environment": {},
         }
 
@@ -72,8 +76,8 @@ def cmd_init(
         template = STARTER_TEMPLATE
         if populate != "dev":
             template = re.sub(
-                r"^populate:\s*\w+",
-                f"populate: {populate}",
+                r"^(\s*populate:\s*)\w+",
+                rf"\g<1>{populate}",
                 template,
                 flags=re.MULTILINE,
             )
@@ -134,10 +138,10 @@ def cmd_import(file_path: Path, stage: str):
 
 
 def cmd_dedupe(apply: bool, min_count: int, stage: str):
-    """Scans environment section for duplicate values and suggests localvars."""
+    """Scans environment section for duplicate values and suggests _meta.consts."""
     data = load_or_init_catalog(CONFIG_FILE)
     environment = data.get("environment", {})
-    localvars = data.setdefault("localvars", {})
+    consts = data["_meta"].setdefault("consts", {})
 
     value_map: dict[Any, list[tuple[str, str]]] = {}
 
@@ -164,9 +168,11 @@ def cmd_dedupe(apply: bool, min_count: int, stage: str):
         )
         return
 
-    print(f"\033[33mFound {len(duplicates)} candidate value(s) for localvars:\033[0m\n")
+    print(
+        f"\033[33mFound {len(duplicates)} candidate value(s) for _meta.consts:\033[0m\n"
+    )
 
-    suggested_localvars: dict[str, Any] = {}
+    suggested_consts: dict[str, Any] = {}
     replacements: list[tuple[str, str, str, Any]] = []
 
     for val, occs in duplicates.items():
@@ -181,12 +187,12 @@ def cmd_dedupe(apply: bool, min_count: int, stage: str):
         token = base_token
         counter = 1
 
-        all_claimed_tokens = {**localvars, **suggested_localvars}
+        all_claimed_tokens = {**consts, **suggested_consts}
         while token in all_claimed_tokens and all_claimed_tokens[token] != val:
             token = f"{base_token}_{counter}"
             counter += 1
 
-        suggested_localvars[token] = val
+        suggested_consts[token] = val
         print(
             f"• \033[36m${{{token}}}\033[0m = \033[32m{repr(val)}\033[0m ({len(occs)} occurrences)"
         )
@@ -196,14 +202,14 @@ def cmd_dedupe(apply: bool, min_count: int, stage: str):
         print()
 
     if not apply:
-        print("Suggested \033[1mlocalvars:\033[0m additions:")
-        for t, v in suggested_localvars.items():
+        print("Suggested \033[1m_meta.consts:\033[0m additions:")
+        for t, v in suggested_consts.items():
             print(f"  {t}: {repr(v)}")
         print("\nRun with \033[36m--apply\033[0m to rewrite env.yaml automatically.")
         return
 
-    for token, val in suggested_localvars.items():
-        localvars[token] = val
+    for token, val in suggested_consts.items():
+        consts[token] = val
 
     for var_name, s_key, token, _ in replacements:
         environment[var_name][s_key] = f"${{{token}}}"
@@ -212,7 +218,7 @@ def cmd_dedupe(apply: bool, min_count: int, stage: str):
         yaml.dump(data, f, Dumper=IndentDumper, sort_keys=False, allow_unicode=True)
 
     print(
-        f"\033[32m✔ Applied {len(suggested_localvars)} localvars to {CONFIG_FILE.name}!\033[0m"
+        f"\033[32m✔ Applied {len(suggested_consts)} constant(s) to {CONFIG_FILE.name}!\033[0m"
     )
     run_pipeline(stage)
 
