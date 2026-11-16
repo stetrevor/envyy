@@ -48,16 +48,23 @@ envyy --help
 
 ### 1. Root Configuration (`env.yaml`)
 
-Your local source of truth. It contains three top-level sections:
+Your local source of truth. It contains two top-level sections: `_meta` (stage registry, schema population rules, and `UPPER_SNAKE_CASE` constants) and `environment`:
 
 ```yaml
-# Stage values safe to commit to env.schema.yaml
-populate: dev
+_meta:
+  # Exhaustive list of valid stages (prevents namespace collisions)
+  stages:
+    - dev
+    - staging
+    - prod
 
-# Shared constants referenced via ${TOKEN} (never emitted directly)
-localvars:
-  BASE_DOMAIN: "example.com"
-  DEFAULT_PORT: 8080
+  # Stage values safe to commit to env.schema.yaml
+  populate: dev
+
+  # Shared UPPER_SNAKE_CASE constants referenced via ${TOKEN} (never emitted directly)
+  consts:
+    BASE_DOMAIN: "example.com"
+    DEFAULT_PORT: 8080
 
 # Environment variables per stage
 environment:
@@ -186,3 +193,18 @@ env.yaml
 ## License
 
 MIT
+
+---
+
+## Compiler & Validation Rules
+
+`envyy` enforces strict structural rules on `env.yaml` before writing `.env` or updating `env.schema.yaml`:
+
+1. **Unified `_meta` Block:** All compiler metadata lives under the top-level `_meta` mapping (`stages`, `populate`, and `consts`). Legacy top-level `populate` or `localvars` keys are rejected to keep metadata cleanly separated from `environment` definitions.
+2. **Explicit Stage Registry (`_meta.stages`):** Every valid stage must be declared in `_meta.stages` (e.g., `[dev, staging, prod]`). CLI commands (`gen`, `watch`, `import`, `dedupe`) and `_meta.populate` validate against this list upfront and fail fast if an undeclared stage is referenced.
+3. **Strict Namespace Isolation:** Inside any variable block under `environment`, keys must either start with an underscore (`_comment`, `_secret`) as compiler directives or match a stage listed in `_meta.stages`. Any unrecognized key triggers a namespace collision error rather than being silently ignored.
+4. **Immutable `UPPER_SNAKE_CASE` Constants (`_meta.consts`):** Shared constants must match `^[A-Z][A-Z0-9_]*$` (e.g., `DEFAULT_PORT`, `BASE_DOMAIN`). Both `_meta.consts` keys and `${TOKEN}` references inside `environment` values are validated against this pattern, and referencing an undefined constant aborts compilation.
+5. **Deterministic Omission & Preservation:**
+   * **Omitted:** If a variable omits a target stage or sets it to explicit null (`~`, `null`, or bare `stage:`), both the key and its `_comment` are omitted from `.env`.
+   * **Preserved:** Explicit empty strings (`""`), `0`, and `false` are emitted verbatim as `KEY=`, `KEY=0`, and `KEY=false`.
+6. **Non-Destructive Watch Loop:** During `envy watch <stage>`, any validation or interpolation error prints a diagnostic message and skips file generation until `env.yaml` is saved in a valid state, preserving your last known-good `.env`.

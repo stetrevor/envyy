@@ -69,3 +69,72 @@ def test_cli_gen_stub_flag(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert exc.value.code == 0
     assert (workspace / ".env.prod").is_file()
     assert not (workspace / ".env").exists()
+
+
+def test_rejects_undeclared_stage_and_namespace_collision(workspace: Path) -> None:
+    # Requesting an undeclared stage fails before writing .env
+    assert cli.run_pipeline("staging") is False
+    assert not (workspace / ".env").exists()
+
+    # Undeclared key inside a variable block triggers a namespace collision error
+    (workspace / "env.yaml").write_text(
+        """_meta:
+  stages:
+    - dev
+  populate: dev
+environment:
+  APP_ENV:
+    dev: development
+    staging: staging
+""",
+        encoding="utf-8",
+    )
+    assert cli.run_pipeline("dev") is False
+
+
+def test_enforces_upper_snake_case_consts(workspace: Path) -> None:
+    # Hyphenated or lowercase constant names in _meta.consts are rejected
+    (workspace / "env.yaml").write_text(
+        """_meta:
+  stages:
+    - dev
+  populate: dev
+  consts:
+    authn-service-env: development
+environment:
+  APP_ENV:
+    dev: "${authn-service-env}"
+""",
+        encoding="utf-8",
+    )
+    assert cli.run_pipeline("dev") is False
+
+    # Invalid ${...} reference format in environment values is rejected
+    (workspace / "env.yaml").write_text(
+        """_meta:
+  stages:
+    - dev
+  populate: dev
+  consts:
+    VALID_CONST: development
+environment:
+  APP_ENV:
+    dev: "${bad-ref}"
+""",
+        encoding="utf-8",
+    )
+    assert cli.run_pipeline("dev") is False
+
+
+def test_rejects_legacy_top_level_keys(workspace: Path) -> None:
+    (workspace / "env.yaml").write_text(
+        """populate: dev
+localvars:
+  PORT: 5432
+environment:
+  DB_PORT:
+    dev: "${PORT}"
+""",
+        encoding="utf-8",
+    )
+    assert cli.run_pipeline("dev") is False

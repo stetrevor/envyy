@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-16
+
+### Changed
+- **Breaking**: Migrated top-level `populate` and `localvars` under a unified `_meta` mapping (`_meta.stages`, `_meta.populate`, and `_meta.consts`) to align with `stageyy` and prevent namespace collisions.
+- Enforced `UPPER_SNAKE_CASE` (`^[A-Z][A-Z0-9_]*$`) naming for `_meta.consts` keys and `${TOKEN}` references.
+- Enforced strict stage validation against `_meta.stages` across `gen`, `watch`, `import`, and `dedupe`, rejecting undeclared stage keys inside `environment` blocks.
+- Updated `watch` to keep running and report validation errors without overwriting `.env` until `env.yaml` is valid.
+
 ## [0.4.1] - 2026-11-16
 
 ### Added
