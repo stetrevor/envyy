@@ -1,7 +1,8 @@
 import io
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any
+
 import yaml
 
 from .constants import (
@@ -18,6 +19,7 @@ from .io_utils import (
     atomic_write_if_changed,
     format_env_value,
     load_or_init_catalog,
+    validate_catalog,
 )
 
 
@@ -56,8 +58,8 @@ def resolve_token(value: Any, consts: dict[str, Any], context_label: str) -> Any
 
 def build_schema_data(data: dict[str, Any]) -> dict[str, Any]:
     """Builds the sanitized structural schema for Git tracking."""
+    declared_stages = validate_catalog(data)
     meta = data.get("_meta", {})
-    stages = meta.get("stages", [])
     populate_rules = meta.get("populate", "dev")
     allowed_stages = (
         {populate_rules}
@@ -68,9 +70,9 @@ def build_schema_data(data: dict[str, Any]) -> dict[str, Any]:
     consts = meta.get("consts", {})
     schema: dict[str, Any] = {
         "_meta": {
-            "stages": stages,
+            "stages": declared_stages,
             "populate": populate_rules,
-            "consts": {k: "" for k in consts.keys()},
+            "consts": {k: "" for k in consts},
         }
     }
 
@@ -138,6 +140,7 @@ def run_pipeline(stage: str, stub: bool = False) -> bool:
 
     try:
         data = load_or_init_catalog(CONFIG_FILE)
+        validate_catalog(data, target_stage=stage)
     except Exception as e:
         print(f"\033[31m✖ Error loading {CONFIG_FILE}:\033[0m {e}")
         return False

@@ -1,13 +1,19 @@
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Any
+
 import yaml
 
 from .compiler import run_pipeline
 from .constants import CONFIG_FILE, SCHEMA_FILE, STARTER_TEMPLATE, TOKEN_PATTERN
 from .dedupe import suggest_token_name
-from .io_utils import IndentDumper, load_or_init_catalog, parse_env_file
+from .io_utils import (
+    IndentDumper,
+    load_or_init_catalog,
+    parse_env_file,
+    validate_catalog,
+)
 
 
 def cmd_init(
@@ -107,7 +113,18 @@ def cmd_import(file_path: Path, stage: str):
         )
         return
 
+    config_existed = CONFIG_FILE.exists()
     data = load_or_init_catalog(CONFIG_FILE)
+    if not config_existed and not data["_meta"]["stages"]:
+        data["_meta"]["stages"] = [stage]
+        data["_meta"]["populate"] = stage
+
+    try:
+        validate_catalog(data, target_stage=stage)
+    except ValueError as e:
+        print(f"\033[31m✖ Stage Validation Error:\033[0m {e}")
+        sys.exit(1)
+
     env_dict = data["environment"]
 
     added = 0
@@ -139,7 +156,33 @@ def cmd_import(file_path: Path, stage: str):
 
 def cmd_dedupe(apply: bool, min_count: int, stage: str):
     """Scans environment section for duplicate values and suggests _meta.consts."""
+
     data = load_or_init_catalog(CONFIG_FILE)
+    try:
+        declared_stages = validate_catalog(data, target_stage=stage)
+    except ValueError as e:
+        print(f"\033[31m✖ Stage Validation Error:\033[0m {e}")
+        sys.exit(1)
+
+    stage_set = set(declared_stages)
+    environment = data.get("environment", {})
+    consts = data["_meta"].setdefault("consts", {})
+
+    value_map: dict[Any, list[tuple[str, str]]] = {}
+
+    for var_name, var_spec in environment.items():
+        if not isinstance(var_spec, dict):
+            continue
+        for s_key, s_val in var_spec.items():
+            if s_key not in stage_set:
+                continue
+            if s_val in ("", None) or isinstance(s_val, bool):
+                continue
+            if isinstance(s_val, str) and TOKEN_PATTERN.search(s_val):
+                continue
+
+            value_map.setdefault(s_val, []).append((var_name, s_key))
+
     environment = data.get("environment", {})
     consts = data["_meta"].setdefault("consts", {})
 
@@ -230,7 +273,10 @@ def cmd_watch(stage: str):
     print(
         f"\033[36m⚡ Watching {CONFIG_FILE.name} for stage '{stage}' (Ctrl+C to quit)...\033[0m"
     )
-    run_pipeline(stage)
+    if not run_pipeline(stage):
+        print(
+            f"\033[33m⏳ Waiting for valid {CONFIG_FILE.name} before generating outputs...\033[0m"
+        )
 
     try:
         for _ in watch(CONFIG_FILE, debounce=150):

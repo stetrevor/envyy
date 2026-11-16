@@ -68,6 +68,63 @@ def load_or_init_catalog(path: Path) -> dict[str, Any]:
     return data
 
 
+def validate_catalog(
+    data: dict[str, Any], target_stage: str | None = None
+) -> list[str]:
+    """Validates _meta.stages, _meta.populate, and variable key namespaces."""
+    meta = data.get("_meta")
+    if not isinstance(meta, dict):
+        raise ValueError("'env.yaml' must define a top-level '_meta' mapping.")
+
+    raw_stages = meta.get("stages")
+    if (
+        not isinstance(raw_stages, list)
+        or not raw_stages
+        or not all(
+            isinstance(s, str) and s and not s.startswith("_") for s in raw_stages
+        )
+    ):
+        raise ValueError(
+            "'env.yaml' must define a non-empty '_meta.stages' list (e.g., stages: [dev, prod])."
+        )
+
+    declared_stages = list(dict.fromkeys(raw_stages))
+    stage_set = set(declared_stages)
+
+    populate_rules = meta.get("populate", [])
+    populate_list = (
+        [populate_rules]
+        if isinstance(populate_rules, str)
+        else list(populate_rules or [])
+    )
+    invalid_populate = [p for p in populate_list if p not in stage_set]
+    if invalid_populate:
+        raise ValueError(
+            f"'_meta.populate' references undeclared stage(s) {invalid_populate}. "
+            f"Declared stages: {declared_stages}"
+        )
+
+    if target_stage is not None and target_stage not in stage_set:
+        raise ValueError(
+            f"Unknown stage '{target_stage}'. Declared stages: {declared_stages}"
+        )
+
+    environment = data.get("environment", {})
+    for var_name, var_spec in environment.items():
+        if not isinstance(var_spec, dict):
+            continue
+        unknown_keys = [
+            k for k in var_spec.keys() if not k.startswith("_") and k not in stage_set
+        ]
+        if unknown_keys:
+            raise ValueError(
+                f"Namespace collision in '{var_name}': undeclared key(s) {unknown_keys}. "
+                f"Keys must start with '_' or match declared stages {declared_stages}."
+            )
+
+    return declared_stages
+
+
 def parse_env_file(path: Path) -> list[tuple[str, Any, str | None]]:
     """Parses a .env file, extracting (key, value, optional_comment)."""
     if not path.is_file():
