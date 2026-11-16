@@ -315,8 +315,10 @@ def atomic_write_if_changed(target_path: Path, new_content: str) -> bool:
     return True
 
 
-def run_pipeline(stage: str) -> bool:
+def run_pipeline(stage: str, stub: bool = False) -> bool:
     """Executes interpolation, change detection, and atomic writing."""
+    target_env_file = Path(f".env.{stage}") if stub else ENV_FILE
+
     try:
         data = load_or_init_catalog(CONFIG_FILE)
     except Exception as e:
@@ -328,12 +330,12 @@ def run_pipeline(stage: str) -> bool:
 
     try:
         env_content = generate_env_content(environment, localvars, stage)
-        env_updated = atomic_write_if_changed(ENV_FILE, env_content)
+        env_updated = atomic_write_if_changed(target_env_file, env_content)
     except KeyError as e:
         print(f"\033[31m✖ Interpolation Error:\033[0m {e}")
         return False
     except Exception as e:
-        print(f"\033[31m✖ Error generating {ENV_FILE.name}:\033[0m {e}")
+        print(f"\033[31m✖ Error generating {target_env_file.name}:\033[0m {e}")
         return False
 
     try:
@@ -356,7 +358,7 @@ def run_pipeline(stage: str) -> bool:
     actions = []
     if env_updated:
         actions.append(
-            f"updated \033[32m{ENV_FILE.name}\033[0m (stage: \033[36m{stage}\033[0m)"
+            f"updated \033[32m{target_env_file.name}\033[0m (stage: \033[36m{stage}\033[0m)"
         )
     else:
         actions.append(f"\033[90m{ENV_FILE.name} unchanged\033[0m")
@@ -639,6 +641,13 @@ def main():
         type=str,
         help="Target stage to extract values from (e.g. dev, staging, prod)",
     )
+    gen_parser.add_argument(
+        "-s",
+        "--stub",
+        action="store_true",
+        help="Include the stage name in the output filename (e.g. .env.prod)",
+    )
+
     # watch
     watch_parser = subparsers.add_parser(
         "watch",
@@ -714,7 +723,7 @@ def main():
 
         cmd_init(file_path=file_path, stage=stage, populate=args.populate)
     elif args.command in ("gen", "generate"):
-        success = run_pipeline(args.stage)
+        success = run_pipeline(args.stage, stub=args.stub)
         sys.exit(0 if success else 1)
     elif args.command == "watch":
         cmd_watch(args.stage)
